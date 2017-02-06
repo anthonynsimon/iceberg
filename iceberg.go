@@ -3,29 +3,23 @@ package iceberg
 import (
 	"errors"
 
-	"sync"
-
-	trie "github.com/armon/go-radix"
+	"github.com/Workiva/go-datastructures/trie/ctrie"
 )
 
-type Iceberg interface {
+type Stream interface {
 	Publish(topic string, msg []byte) error
 	Subscribe(topic string, onReceive func(msg []byte)) (uint64, error)
 	Unsubscribe(topic string, id uint64) error
 }
 
-type icequeue struct {
-	// TODO:
-	// - switch to a CTrie
-	// - handle concurrency!
-	topics *trie.Tree
+type stream struct {
+	topics *ctrie.Ctrie
 	idSeq  uint64
-	mutex  sync.Mutex
 }
 
-func newIcequeue() *icequeue {
-	return &icequeue{
-		topics: trie.New(),
+func newStream() *stream {
+	return &stream{
+		topics: ctrie.New(nil),
 		idSeq:  0,
 	}
 }
@@ -35,13 +29,11 @@ type subscriber struct {
 	OnReceive func(msg []byte)
 }
 
-func (q *icequeue) Publish(topic string, msg []byte) error {
-	q.mutex.Lock()
-	t, ok := q.topics.Get(topic)
-	q.mutex.Unlock()
+func (q *stream) Publish(topic string, msg []byte) error {
+	t, ok := q.topics.Lookup([]byte(topic))
 	if !ok {
 		t = []subscriber{}
-		q.topics.Insert(topic, t)
+		q.topics.Insert([]byte(topic), t)
 	}
 
 	subscribers := t.([]subscriber)
@@ -52,15 +44,11 @@ func (q *icequeue) Publish(topic string, msg []byte) error {
 	return nil
 }
 
-func (q *icequeue) Subscribe(topic string, onReceive func(msg []byte)) (uint64, error) {
-	q.mutex.Lock()
-	t, ok := q.topics.Get(topic)
-	q.mutex.Unlock()
+func (q *stream) Subscribe(topic string, onReceive func(msg []byte)) (uint64, error) {
+	t, ok := q.topics.Lookup([]byte(topic))
 	if !ok {
 		t = []subscriber{}
-		q.mutex.Lock()
-		q.topics.Insert(topic, t)
-		q.mutex.Unlock()
+		q.topics.Insert([]byte(topic), t)
 	}
 
 	subscribers := t.([]subscriber)
@@ -69,19 +57,15 @@ func (q *icequeue) Subscribe(topic string, onReceive func(msg []byte)) (uint64, 
 		OnReceive: onReceive,
 	})
 
-	q.mutex.Lock()
-	q.topics.Insert(topic, subscribers)
-	q.mutex.Unlock()
+	q.topics.Insert([]byte(topic), subscribers)
 
 	q.idSeq++
 
 	return q.idSeq, nil
 }
 
-func (q *icequeue) Unsubscribe(topic string, id uint64) error {
-	q.mutex.Lock()
-	t, ok := q.topics.Get(topic)
-	q.mutex.Unlock()
+func (q *stream) Unsubscribe(topic string, id uint64) error {
+	t, ok := q.topics.Lookup([]byte(topic))
 	if !ok {
 		return errors.New("no subscribers for topic")
 	}
@@ -90,9 +74,7 @@ func (q *icequeue) Unsubscribe(topic string, id uint64) error {
 	for i, sub := range subscribers {
 		if sub.ID == id {
 			subscribers = append(subscribers[0:i], subscribers[i+1:]...)
-			q.mutex.Lock()
-			q.topics.Insert(topic, subscribers)
-			q.mutex.Unlock()
+			q.topics.Insert([]byte(topic), subscribers)
 			return nil
 		}
 	}
