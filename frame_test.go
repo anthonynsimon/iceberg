@@ -2,6 +2,10 @@ package iceberg
 
 import (
 	"bytes"
+	"fmt"
+	"sort"
+	"strings"
+	"sync"
 	"testing"
 )
 
@@ -42,52 +46,54 @@ func TestReadWriteFrame(t *testing.T) {
 	}
 }
 
-/*
 func TestConcurrentReadWrite(t *testing.T) {
-	inputstr := "hello"
-	writeBuf := bytes.NewBuffer(nil)
-	writeChan := make(chan []byte, 1)
-	readChan := make(chan io.Reader, 1)
+	inputstr := "testingString123456789"
+	socketMock := bytes.NewBuffer(nil)
+	mu := sync.Mutex{}
 
-	go func(wr io.ReadWriter) {
-		for {
-			select {
-			case b := <-writeChan:
-				err := writeFrame(b, wr)
-				if err != nil {
-					t.Error(err)
-				}
-				readChan <- wr
-			}
-		}
-	}(writeBuf)
-
-	for i := 0; i < 1000; i++ {
+	for i := 0; i < 10000; i++ {
 		go func(i int) {
-			writeChan <- []byte(fmt.Sprintf("%s_%04d", inputstr, i))
+			mu.Lock()
+			err := writeFrame([]byte(fmt.Sprintf("%s_%04d", inputstr, i)), socketMock)
+			mu.Unlock()
+			if err != nil {
+				t.Error(err)
+			}
 		}(i)
 	}
 
-	for i := 0; i < 1000; i++ {
-		read := <-readChan
-		readBuf, err := readFrame(read)
+	results := []string{}
+	var readBuf [maxFrameSize]byte
+	for i := 0; i < 10000; i++ {
+		mu.Lock()
+		n, err := readFrame(readBuf[:], socketMock)
+		mu.Unlock()
 		if err != nil {
 			t.Error(err)
 		}
 
 		expected := fmt.Sprintf("%s_%04d", inputstr, i)
 
-		if len(readBuf) != len(expected) {
-			t.Errorf("unexpected frame read bytes. expected %d, got %d", len(expected), len(readBuf))
+		if len(readBuf[:n]) != len(expected) {
+			t.Errorf("unexpected frame read bytes. expected %d, got %d", len(expected), len(readBuf[:n]))
 		}
 
-		result := string(readBuf)
+		result := string(readBuf[:n])
 
 		if !strings.HasPrefix(result, inputstr) {
 			t.Errorf("expected %s, got %s", expected, result)
 		}
 
-		fmt.Println(result)
+		results = append(results, result)
+	}
+
+	sort.Strings(results)
+	seen := make(map[string]bool)
+	for _, r := range results {
+		if seen[r] {
+			t.Errorf("found duplicate entry: %s", r)
+			break
+		}
+		seen[r] = true
 	}
 }
-*/
