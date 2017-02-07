@@ -9,6 +9,15 @@ const (
 	framePrefixSize = 4
 )
 
+// frame format:
+//
+// [x][x][x][x][x][x][x][x][x][x][x][x][x]...
+// |      4 byte     |      n-bytes    |
+// -------------------------------------
+// |      size       |      payload    |
+// |      int32      |       binary    |
+//
+
 func writeFrame(frame []byte, w io.Writer) error {
 	frameLen := len(frame)
 	buf := make([]byte, frameLen+framePrefixSize)
