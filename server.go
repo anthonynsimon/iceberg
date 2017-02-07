@@ -1,6 +1,9 @@
 package iceberg
 
-import "fmt"
+import (
+	"fmt"
+	"net"
+)
 
 type Server struct {
 	addr     string
@@ -8,11 +11,15 @@ type Server struct {
 	shutdown chan bool
 }
 
-func NewServer(addr string) *Server {
+func NewServer(addr string) (*Server, error) {
+	_, err := net.ResolveTCPAddr("tcp", addr)
+	if err != nil {
+		return nil, err
+	}
 	return &Server{
 		addr:     addr,
 		shutdown: make(chan bool, 1),
-	}
+	}, nil
 }
 
 type context struct {

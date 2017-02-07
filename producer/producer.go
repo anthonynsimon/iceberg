@@ -27,7 +27,7 @@ func main() {
 		wg.Add(1)
 		go func(i int) {
 			for j := 0; j < 10000; j++ {
-				time.Sleep(500 * time.Millisecond)
+				time.Sleep(10 * time.Millisecond)
 				err = client.Publish("infrastructure.metrics", []byte(fmt.Sprintf(
 					"metrics message %06d from goroutine %04d", j, i)))
 				if err != nil {
