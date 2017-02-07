@@ -21,7 +21,11 @@ func main() {
 	var latencies []time.Duration
 	wg := &sync.WaitGroup{}
 
-	server := iceberg.NewServer(":7260")
+	server, err := iceberg.NewServer(":7260")
+	if err != nil {
+		fmt.Println(err)
+		os.Exit(1)
+	}
 	go func() {
 		server.Run()
 	}()

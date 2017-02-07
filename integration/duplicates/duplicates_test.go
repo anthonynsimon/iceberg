@@ -14,7 +14,11 @@ func TestDuplicates(t *testing.T) {
 	wg := &sync.WaitGroup{}
 
 	go func() {
-		s := iceberg.NewServer(":7260")
+		s, err := iceberg.NewServer(":7260")
+		if err != nil {
+			fmt.Println(err)
+			os.Exit(1)
+		}
 		s.Run()
 	}()
 
