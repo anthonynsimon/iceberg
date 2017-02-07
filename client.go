@@ -13,22 +13,32 @@ type Client interface {
 	Connect(addr string) error
 	Publish(topic string, msg []byte) error
 	Subscribe(topic string, onReceive func(msg []byte)) error
+	Shutdown() error
 	// Unsubscribe(topic string) error
 }
 
 func NewClient(addr string) (Client, error) {
-	return &client{}, nil
+	return &client{
+		shutdown:         make(chan bool, 1),
+		shutdownComplete: make(chan bool, 1),
+	}, nil
 }
 
 type client struct {
-	conn     net.Conn
-	shutdown chan bool
-	mu       sync.Mutex
+	conn             net.Conn
+	shutdown         chan bool
+	shutdownComplete chan bool
+	mu               sync.Mutex
 }
 
 func (cl *client) Shutdown() error {
+	if cl.conn == nil {
+		fmt.Println("can't shutdown, no open connection")
+		return errors.New("no open connection")
+	}
 	fmt.Println("shutting down client")
 	cl.shutdown <- true
+	<-cl.shutdownComplete
 	return nil
 }
 
@@ -45,6 +55,7 @@ func (cl *client) Connect(addr string) error {
 				cl.conn.Close()
 				cl.conn = nil
 				fmt.Println("connection closed")
+				cl.shutdownComplete <- true
 			}
 		}
 	}()

@@ -7,7 +7,20 @@ import (
 )
 
 type tcpTransport struct {
-	ctx *context
+	ctx      *context
+	shutdown chan bool
+}
+
+func newTCPTransport(ctx *context) *tcpTransport {
+	return &tcpTransport{
+		ctx:      ctx,
+		shutdown: make(chan bool, 1),
+	}
+}
+
+func (tcpt *tcpTransport) Shutdown() {
+	fmt.Println("shutting down tcp")
+	tcpt.shutdown <- true
 }
 
 func (tcpt *tcpTransport) Listen(addr string) {
@@ -20,12 +33,17 @@ func (tcpt *tcpTransport) Listen(addr string) {
 	fmt.Println("listening over TCP at", addr)
 
 	for {
-		conn, err := lis.Accept()
-		if err != nil {
-			fmt.Println(err)
-			continue
+		select {
+		case <-tcpt.shutdown:
+			return
+		default:
+			conn, err := lis.Accept()
+			if err != nil {
+				fmt.Println(err)
+				continue
+			}
+			go tcpt.handleConn(conn)
 		}
-		go tcpt.handleConn(conn)
 	}
 }
 

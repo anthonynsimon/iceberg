@@ -1,9 +1,18 @@
 package iceberg
 
-import "sync"
+import "fmt"
 
 type Server struct {
-	ctx *context
+	addr     string
+	ctx      *context
+	shutdown chan bool
+}
+
+func NewServer(addr string) *Server {
+	return &Server{
+		addr:     addr,
+		shutdown: make(chan bool, 1),
+	}
 }
 
 type context struct {
@@ -15,14 +24,24 @@ func (srv *Server) Run() {
 		stream: newStream(),
 	}
 
-	tcp := tcpTransport{
-		ctx: ctx,
-	}
+	tcp := newTCPTransport(ctx)
 
-	wg := sync.WaitGroup{}
-	wg.Add(1)
 	go func() {
-		tcp.Listen(":7260")
+		tcp.Listen(srv.addr)
 	}()
-	wg.Wait()
+
+	for {
+		select {
+		case <-srv.shutdown:
+			tcp.Shutdown()
+			return
+		default:
+			continue
+		}
+	}
+}
+
+func (src *Server) Shutdown() {
+	fmt.Println("shutting down server")
+	src.shutdown <- true
 }
