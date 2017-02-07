@@ -1,4 +1,4 @@
-package integration
+package duplicates
 
 import (
 	"fmt"
@@ -14,7 +14,7 @@ func TestDuplicates(t *testing.T) {
 	wg := &sync.WaitGroup{}
 
 	go func() {
-		s := iceberg.Server{}
+		s := iceberg.NewServer(":7260")
 		s.Run()
 	}()
 
