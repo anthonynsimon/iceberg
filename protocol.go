@@ -1,8 +1,8 @@
 package iceberg
 
 import (
-	"bufio"
 	"bytes"
+	"encoding/binary"
 	"fmt"
 	"io"
 	"net"
@@ -20,23 +20,17 @@ func (prot *protocolV1) handle(conn net.Conn) {
 	}()
 	fmt.Println("handling protocol v1 connection with", conn.RemoteAddr())
 
-	reader := bufio.NewReader(conn)
+	var buf [2048]byte
 	for {
 		// TODO: add heartbeat
 		// TODO: optimize this
-		line, err := reader.ReadSlice('\n')
+		n, err := readFrame(buf[:], conn)
 		if err != nil {
-			if err == io.EOF {
-				continue
-			}
 			fmt.Println(err)
 			return
 		}
 
-		line = line[:len(line)-1]
-		if len(line) > 0 && line[len(line)-1] == '\r' {
-			line = line[:len(line)-1]
-		}
+		line := buf[:n]
 
 		cmdBuf := bytes.NewBuffer(nil)
 		topicBuf := bytes.NewBuffer(nil)
@@ -59,7 +53,10 @@ func (prot *protocolV1) handle(conn net.Conn) {
 					break
 				}
 			}
-			conn.Write([]byte("malformed command\r\n"))
+			err := writeFrame([]byte("ERR: malformed command"), conn)
+			if err != nil {
+				fmt.Println(err)
+			}
 			return
 		}
 
@@ -68,25 +65,34 @@ func (prot *protocolV1) handle(conn net.Conn) {
 		switch cmdBuf.String() {
 		case "pub":
 			message := line[cursor:]
+
 			if len(message) < minMessageBytes {
-				conn.Write([]byte("ERR\r\n"))
-				fmt.Println("message length is not valid")
+				fmt.Println("line", string(line))
+				fmt.Println("cmd", cmdBuf.String())
+				fmt.Println("topic", topic)
+				fmt.Println("cursor", cursor)
+				fmt.Println("\\r\\n bytes", []byte{'\r', '\n'})
+				fmt.Println("message bytes", message)
+				fmt.Println("line bytes", line)
+				fmt.Print("START_START::" + string(message) + "::END_END\n")
+
+				conn.Write([]byte("ERR: message length is not valid"))
 				continue
 			}
 
-			fmt.Println("client wants to publish to", topic)
-			fmt.Println(string(message))
 			prot.ctx.stream.Publish(topic, message)
-			conn.Write([]byte("OK\r\n"))
+
+			err := writeFrame([]byte("OK"), conn)
+			if err != nil {
+				fmt.Println(err)
+				return
+			}
 		case "sub":
-			fmt.Println("client wants to subscribe to", topic)
+			// fmt.Println("client wants to subscribe to", topic)
 			wl := sync.Mutex{}
 			subID, err := prot.ctx.stream.Subscribe(topic, func(msg []byte) {
-				frame := bytes.NewBuffer(msg)
-				frame.Write([]byte{'\n'})
-				frameBytes := frame.Bytes()
 				wl.Lock()
-				_, err = conn.Write(frameBytes)
+				err = writeFrame(msg, conn)
 				wl.Unlock()
 				if err != nil {
 					fmt.Println(err)
@@ -98,8 +104,42 @@ func (prot *protocolV1) handle(conn net.Conn) {
 				return
 			}
 			defer prot.ctx.stream.Unsubscribe(topic, subID) // TODO: handle return error?
-			conn.Write([]byte("OK"))
-			fmt.Println("subscribed")
+			wl.Lock()
+			err = writeFrame([]byte("OK"), conn)
+			if err != nil {
+				fmt.Println(err)
+				return
+			}
+			wl.Unlock()
 		}
 	}
+}
+
+func writeFrame(frame []byte, w io.Writer) error {
+	frameLen := len(frame)
+	buf := make([]byte, frameLen+8)
+	binary.BigEndian.PutUint64(buf[0:8], uint64(frameLen))
+	copy(buf[8:], frame[:])
+	_, err := w.Write(buf)
+	return err
+}
+
+func readFrame(dst []byte, r io.Reader) (int, error) {
+	_, err := io.ReadFull(r, dst[0:8])
+	if err != nil {
+		if err != io.EOF {
+			return 0, err
+		}
+	}
+
+	n := int(binary.BigEndian.Uint64((dst[:8])))
+	fmt.Println(string(dst[:8]))
+	_, err = io.ReadFull(r, dst[0:n])
+	if err != nil {
+		if err != io.EOF {
+			return 0, err
+		}
+	}
+
+	return n, nil
 }

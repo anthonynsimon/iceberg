@@ -34,8 +34,8 @@ func (tcpt *tcpTransport) Listen(addr string) {
 }
 
 func (tcpt *tcpTransport) handleConn(conn net.Conn) {
-	buf := make([]byte, 4)
-	_, err := io.ReadFull(conn, buf)
+	var buf [256]byte
+	n, err := readFrame(buf[:], conn)
 	if err != nil {
 		if err != io.EOF {
 			fmt.Println(err)
@@ -44,16 +44,25 @@ func (tcpt *tcpTransport) handleConn(conn net.Conn) {
 		}
 	}
 
+	initMessage := buf[:n]
+
 	var protocol *protocolV1
-	switch string(buf) {
+	switch string(initMessage) {
 	case protocolV1Ident:
 		protocol = &protocolV1{
 			ctx: tcpt.ctx,
 		}
-		conn.Write([]byte("OK"))
+		err = writeFrame([]byte("OK"), conn)
+		if err != nil {
+			fmt.Println(err)
+			return
+		}
 	default:
-		conn.Write([]byte("bad protocol\n\r"))
+		err = writeFrame([]byte("ERR: bad protocol"), conn)
 		conn.Close()
+		if err != nil {
+			fmt.Println(err)
+		}
 		return
 	}
 

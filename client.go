@@ -55,17 +55,18 @@ func (cl *client) Connect(addr string) error {
 
 	fmt.Println("connected over TCP at", addr)
 
-	_, err = cl.conn.Write([]byte("  v1"))
+	err = writeFrame([]byte("  v1"), conn)
 	if err != nil {
 		return err
 	}
 
-	var response [2]byte
-	_, err = io.ReadFull(cl.conn, response[:])
+	var buf [256]byte
+	n, err := readFrame(buf[:], conn)
 	if err != nil {
 		return err
 	}
 
+	response := buf[:n]
 	fmt.Println("response:", string(response[:]))
 
 	if string(response[:]) != "OK" {
@@ -82,6 +83,7 @@ func (cl *client) Publish(topic string, data []byte) error {
 		return errors.New("no open connection")
 	}
 
+	fmt.Println(string(data))
 	msg := newMesage(data)
 	msgEncoded, err := encodeMessage(msg)
 	if err != nil {
@@ -93,18 +95,26 @@ func (cl *client) Publish(topic string, data []byte) error {
 	if err != nil {
 		return err
 	}
-	_, err = frame.Write([]byte{'\n'})
-	if err != nil {
-		return err
-	}
 
 	bytesFrame := frame.Bytes()
 
 	cl.muWrite.Lock()
-	_, err = cl.conn.Write(bytesFrame)
+	err = writeFrame(bytesFrame, cl.conn)
 	cl.muWrite.Unlock()
 	if err != nil {
 		return err
+	}
+
+	var buf [256]byte
+	n, err := readFrame(buf[:], cl.conn)
+	if err != nil {
+		return err
+	}
+
+	response := buf[:n]
+
+	if res := string(response[:]); res != "OK" {
+		return errors.New("error: " + res)
 	}
 
 	return nil
@@ -118,7 +128,7 @@ func (cl *client) Subscribe(topic string, onReceive func(data []byte)) error {
 	fmt.Println("subscribing to topic:", topic)
 
 	frame := bytes.NewBuffer([]byte("sub " + topic))
-	_, err := frame.Write([]byte{'\n'})
+	_, err := frame.Write([]byte{'\000'})
 	if err != nil {
 		return err
 	}

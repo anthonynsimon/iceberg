@@ -2,7 +2,6 @@ package main
 
 import (
 	"fmt"
-	"math/rand"
 	"os"
 	"sync"
 	"time"
@@ -28,19 +27,20 @@ func main() {
 	}
 
 	wg := sync.WaitGroup{}
-	for i := 1; i <= 5; i++ {
+	for i := 0; i < 10; i++ {
 		wg.Add(1)
-		go func() {
-			for j := 0; j < 10000; j++ {
-				time.Sleep(10 * time.Millisecond)
-				err = client.Publish("infrastructure.metrics", []byte(fmt.Sprintf("metrics message %d", rand.Intn(1<<32))))
+		go func(i int) {
+			for j := 0; j < 100000; j++ {
+				time.Sleep(150 * time.Millisecond)
+				err = client.Publish("infrastructure.metrics", []byte(fmt.Sprintf(
+					"metrics message %d from goroutine %d", j, i)))
 				if err != nil {
 					fmt.Println(err)
 					os.Exit(1)
 				}
 			}
 			wg.Done()
-		}()
+		}(i)
 	}
 
 	wg.Wait()
